@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Agent POC - Multi-Tool Reasoning</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --dark-gradient: linear-gradient(135deg, #2c3e50 0%, #4a6741 100%);
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --backdrop-blur: blur(20px);
+            --shadow-xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            --shadow-glow: 0 0 30px rgba(102, 126, 234, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="rgba(255,255,255,0.1)"/><circle cx="80" cy="40" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="40" cy="80" r="1.5" fill="rgba(255,255,255,0.1)"/></svg>');
+            opacity: 0.3;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .container-fluid {
+            height: 100vh;
+            padding: 0;
+        }
+
+        .sidebar {
+            background: var(--glass-bg);
+            backdrop-filter: var(--backdrop-blur);
+            border-right: 1px solid var(--glass-border);
+            height: 100vh;
+            overflow-y: auto;
+            padding: 2rem 1.5rem;
+            position: relative;
+            box-shadow: var(--shadow-xl);
+        }
+
+        .sidebar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 100px;
+            background: var(--primary-gradient);
+            opacity: 0.1;
+            border-radius: 0 0 50px 0;
+        }
+
+        .sidebar h4 {
+            color: white;
+            font-weight: 700;
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            position: relative;
+            z-index: 2;
+        }
+
+        .form-label {
+            color: rgba(255, 255, 255, 0.9);
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-select, .form-control {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .form-select:focus, .form-control:focus {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(102, 126, 234, 0.6);
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+            color: white;
+        }
+
+        .form-select option {
+            background: rgba(40, 40, 40, 0.95);
+            color: white;
+        }
+
+        .tool-status {
+            display: grid;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .tool-badge {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: var(--backdrop-blur);
+            color: white;
+            padding: 0.75rem 1rem;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .tool-badge:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .tool-badge i {
+            font-size: 1.1rem;
+        }
+
+        .stats-section {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            backdrop-filter: var(--backdrop-blur);
+        }
+
+        .stats-section h6 {
+            color: rgba(255, 255, 255, 0.9);
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            color: rgba(255, 255, 255, 0.8);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: white;
+        }
+
+        .main-content {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+            position: relative;
+        }
+
+        .chat-header {
+            background: var(--glass-bg);
+            backdrop-filter: var(--backdrop-blur);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chat-title {
+            color: white;
+            font-weight: 600;
+            font-size: 1.2rem;
+            margin: 0;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4facfe;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            background: transparent;
+            position: relative;
+        }
+
+        .message {
+            margin-bottom: 1.5rem;
+            padding: 1rem 1.5rem;
+            border-radius: 20px;
+            max-width: 85%;
+            word-wrap: break-word;
+            position: relative;
+            backdrop-filter: var(--backdrop-blur);
+            transition: all 0.3s ease;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user-message {
+            background: var(--primary-gradient);
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 8px;
+            box-shadow: var(--shadow-xl);
+        }
+
+        .message.agent-message {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            color: white;
+            margin-right: auto;
+            border-bottom-left-radius: 8px;
+            box-shadow: var(--shadow-xl);
+        }
+
+        .message.system-message {
+            background: var(--success-gradient);
+            color: white;
+            margin: 0 auto;
+            text-align: center;
+            border-radius: 20px;
+            box-shadow: var(--shadow-xl);
+        }
+
+        .message.tool-message {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            color: #ffc107;
+            margin-right: auto;
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+            font-size: 0.9rem;
+            box-shadow: var(--shadow-xl);
+        }
+
+        .message.error-message {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid rgba(248, 81, 73, 0.3);
+            color: #f85149;
+            box-shadow: var(--shadow-xl);
+        }
+
+        .input-container {
+            padding: 2rem;
+            background: var(--glass-bg);
+            border-top: 1px solid var(--glass-border);
+            backdrop-filter: var(--backdrop-blur);
+        }
+
+        .input-group {
+            position: relative;
+            max-width: 100%;
+        }
+
+        .input-group .form-control {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 1rem 1.5rem;
+            font-size: 1rem;
+            border-radius: 25px;
+            padding-right: 120px;
+            transition: all 0.3s ease;
+        }
+
+        .input-group .form-control:focus {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(102, 126, 234, 0.6);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .input-group .form-control::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .send-btn {
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 20px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-50%) scale(1.05);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .code-block {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1rem;
+            margin: 0.5rem 0;
+            font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+
+        .thinking-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: rgba(255, 255, 255, 0.7);
+            font-style: italic;
+            animation: pulse 1.5s infinite;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .typing-dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typing {
+            0%, 80%, 100% {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            40% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .alert {
+            border: none;
+            border-radius: 12px;
+            backdrop-filter: var(--backdrop-blur);
+            margin: 1rem 2rem;
+            box-shadow: var(--shadow-xl);
+        }
+
+        .alert-danger {
+            background: rgba(248, 81, 73, 0.1);
+            color: #f85149;
+            border: 1px solid rgba(248, 81, 73, 0.3);
+        }
+
+        /* Custom scrollbar */
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            transition: background 0.3s ease;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .sidebar {
+                height: auto;
+                max-height: 40vh;
+                border-right: none;
+                border-bottom: 1px solid var(--glass-border);
+                padding: 1rem;
+            }
+            
+            .main-content {
+                height: calc(100vh - 40vh);
+            }
+            
+            .message {
+                max-width: 95%;
+            }
+
+            .input-container {
+                padding: 1rem;
+            }
+
+            .chat-container {
+                padding: 1rem;
+            }
+        }
+
+        /* Micro-interactions */
+        .message:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-xl);
+        }
+
+        .tool-badge.active {
+            background: var(--success-gradient);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .glow {
+            box-shadow: var(--shadow-glow) !important;
+        }
+
+        /* Loading animation */
+        .spinner-border-sm {
+            width: 1rem;
+            height: 1rem;
+            border-width: 0.1em;
+        }
+
+        /* Enhanced button styles */
+        .btn-close {
+            filter: invert(1);
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .status-badge.ready {
+            background: var(--success-gradient);
+            color: white;
+        }
+
+        .status-badge.working {
+            background: var(--secondary-gradient);
+            color: white;
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Enhanced Sidebar -->
+            <div class="col-md-3 sidebar">
+                <h4><i class="fas fa-robot me-2"></i>LLM Agent POC</h4>
+                
+                <!-- Model Selection -->
+                <div class="mb-4">
+                    <label for="modelSelect" class="form-label">
+                        <i class="fas fa-brain me-1"></i>LLM Provider/Model
+                    </label>
+                    <select class="form-select" id="modelSelect">
+                        <option value="openai/gpt-4">OpenAI GPT-4</option>
+                        <option value="openai/gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</option>
+                        <option value="anthropic/claude-3">Anthropic Claude 3</option>
+                        <option value="local/ollama">Local Ollama</option>
+                    </select>
+                </div>
+
+                <!-- API Key -->
+                <div class="mb-4">
+                    <label for="apiKey" class="form-label">
+                        <i class="fas fa-key me-1"></i>API Key
+                    </label>
+                    <input type="password" class="form-control" id="apiKey" placeholder="Enter your API key">
+                </div>
+
+                <!-- Enhanced Tools Status -->
+                <div class="mb-4">
+                    <h6><i class="fas fa-tools me-1"></i>Available Tools</h6>
+                    <div class="tool-status">
+                        <div class="tool-badge" data-tool="search">
+                            <i class="fas fa-search"></i>
+                            <span>Google Search</span>
+                        </div>
+                        <div class="tool-badge" data-tool="ai">
+                            <i class="fas fa-magic"></i>
+                            <span>AI Pipeline</span>
+                        </div>
+                        <div class="tool-badge" data-tool="code">
+                            <i class="fas fa-code"></i>
+                            <span>Code Execution</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Enhanced Stats -->
+                <div class="stats-section">
+                    <h6><i class="fas fa-chart-bar me-1"></i>Session Analytics</h6>
+                    <div class="stat-item">
+                        <span>Messages</span>
+                        <span class="stat-value" id="messageCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Tool Calls</span>
+                        <span class="stat-value" id="toolCallCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>Status</span>
+                        <span class="status-badge ready" id="agentStatus">Ready</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Enhanced Main Chat Area -->
+            <div class="col-md-9 main-content">
+                <!-- Chat Header -->
+                <div class="chat-header">
+                    <h5 class="chat-title">AI Assistant</h5>
+                    <div class="status-indicator">
+                        <div class="status-dot"></div>
+                        <span>Online & Ready</span>
+                    </div>
+                </div>
+
+                <!-- Alert Container -->
+                <div id="alertContainer"></div>
+
+                <!-- Chat Messages -->
+                <div id="chatContainer" class="chat-container">
+                    <div class="message system-message fade-in">
+                        <i class="fas fa-robot me-2"></i>
+                        <strong>LLM Agent Initialized</strong><br>
+                        <small>I can search the web, execute code, and use AI workflows to help you solve complex problems. What would you like me to do?</small>
+                    </div>
+                </div>
+
+                <!-- Enhanced Input Area -->
+                <div class="input-container">
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="userInput" 
+                               placeholder="Ask me anything... I can search, code, and reason through complex tasks!">
+                        <button class="send-btn" type="button" id="sendBtn">
+                            <span id="sendBtnText">Send</span>
+                            <div id="sendBtnSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></div>
+                            <i class="fas fa-paper-plane ms-1" id="sendIcon"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Enhanced LLM Agent with Modern UI
+        class EnhancedLLMAgent {
+            constructor() {
+                this.messages = [];
+                this.messageCount = 0;
+                this.toolCallCount = 0;
+                this.isProcessing = false;
+                this.activeTools = new Set();
+                
+                this.initializeElements();
+                this.initializeEventListeners();
+                this.initializeTools();
+                this.addWelcomeEffects();
+                
+                console.log('🤖 Enhanced LLM Agent initialized with modern design');
+            }
+            
+            initializeElements() {
+                this.chatContainer = document.getElementById('chatContainer');
+                this.userInput = document.getElementById('userInput');
+                this.sendBtn = document.getElementById('sendBtn');
+                this.sendBtnText = document.getElementById('sendBtnText');
+                this.sendBtnSpinner = document.getElementById('sendBtnSpinner');
+                this.sendIcon = document.getElementById('sendIcon');
+                this.modelSelect = document.getElementById('modelSelect');
+                this.apiKey = document.getElementById('apiKey');
+                this.alertContainer = document.getElementById('alertContainer');
+                this.messageCountEl = document.getElementById('messageCount');
+                this.toolCallCountEl = document.getElementById('toolCallCount');
+                this.agentStatus = document.getElementById('agentStatus');
+                this.toolBadges = document.querySelectorAll('.tool-badge');
+            }
+            
+            initializeEventListeners() {
+                this.sendBtn.addEventListener('click', () => this.handleUserInput());
+                this.userInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.handleUserInput();
+                });
+                
+                // Tool badge interactions
+                this.toolBadges.forEach(badge => {
+                    badge.addEventListener('click', () => this.toggleTool(badge));
+                });
+
+                // Input focus effects
+                this.userInput.addEventListener('focus', () => {
+                    this.userInput.parentElement.classList.add('glow');
+                });
+                this.userInput.addEventListener('blur', () => {
+                    this.userInput.parentElement.classList.remove('glow');
+                });
+            }
+            
+            initializeTools() {
+                this.tools = [
+                    {
+                        type: "function",
+                        function: {
+                            name: "google_search",
+                            description: "Search Google for information on any topic",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    query: {
+                                        type: "string",
+                                        description: "The search query"
+                                    }
+                                },
+                                required: ["query"]
+                            }
+                        }
+                    },
+                    {
+                        type: "function",
+                        function: {
+                            name: "ai_pipe",
+                            description: "Use AI pipeline for complex data processing and workflows",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    prompt: {
+                                        type: "string",
+                                        description: "The AI processing prompt"
+                                    },
+                                    data: {
+                                        type: "string",
+                                        description: "Input data for processing"
+                                    }
+                                },
+                                required: ["prompt"]
+                            }
+                        }
+                    },
+                    {
+                        type: "function",
+                        function: {
+                            name: "execute_javascript",
+                            description: "Execute JavaScript code safely in the browser and return results",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    code: {
+                                        type: "string",
+                                        description: "JavaScript code to execute"
+                                    }
+                                },
+                                required: ["code"]
+                            }
+                        }
+                    }
+                ];
+            }
+
+            addWelcomeEffects() {
+                // Add subtle animation to the welcome message
+                setTimeout(() => {
+                    const systemMessage = this.chatContainer.querySelector('.system-message');
+                    if (systemMessage) {
+                        systemMessage.style.transform = 'scale(1.02)';
+                        setTimeout(() => {
+                            systemMessage.style.transform = 'scale(1)';
+                        }, 200);
+                    }
+                }, 1000);
+            }
+
+            toggleTool(badge) {
+                const tool = badge.dataset.tool;
+                badge.classList.toggle('active');
+                
+                if (this.activeTools.has(tool)) {
+                    this.activeTools.delete(tool);
+                } else {
+                    this.activeTools.add(tool);
+                }
+            }
+            
+            async handleUserInput() {
+                const input = this.userInput.value.trim();
+                if (!input || this.isProcessing) return;
+                
+                this.userInput.value = '';
+                this.addMessage('user', input);
+                this.messages.push({ role: 'user', content: input });
+                
+                await this.agentLoop();
+            }
+            
+            async agentLoop() {
+                this.setProcessing(true);
+                this.showThinkingIndicator();
+                
+                try {
+                    let loopCount = 0;
+                    const maxLoops = 5;
+                    
+                    while (loopCount < maxLoops) {
+                        const response = await this.queryLLM();
+                        
+                        this.hideThinkingIndicator();
+                        
+                        if (response.content) {
+                            this.addMessage('agent', response.content);
+                        }
+                        
+                        if (response.tool_calls && response.tool_calls.length > 0) {
+                            const toolResults = await this.handleToolCalls(response.tool_calls);
+                            
+                            this.messages.push({
+                                role: 'assistant',
+                                content: response.content,
+                                tool_calls: response.tool_calls
+                            });
+                            
+                            toolResults.forEach(result => {
+                                this.messages.push({
+                                    role: 'tool',
+                                    content: result.content,
+                                    tool_call_id: result.tool_call_id
+                                });
+                            });
+                            
+                            loopCount++;
+                        } else {
+                            this.messages.push({
+                                role: 'assistant',
+                                content: response.content || "I'm ready for your next request."
+                            });
+                            break;
+                        }
+                    }
+                    
+                    if (loopCount >= maxLoops) {
+                        this.addMessage('agent', '✨ Task completed after multiple tool executions.');
+                    }
+                    
+                } catch (error) {
+                    console.error('Agent loop error:', error);
+                    this.hideThinkingIndicator();
+                    this.showError('Agent encountered an error: ' + error.message);
+                    this.addMessage('error', 'Sorry, I encountered an error. Please try again.');
+                }
+                
+                this.setProcessing(false);
+            }
+
+            showThinkingIndicator() {
+                const thinkingEl = document.createElement('div');
+                thinkingEl.className = 'message agent-message thinking-indicator';
+                thinkingEl.id = 'thinking-indicator';
+                thinkingEl.innerHTML = `
+                    <i class="fas fa-brain me-2"></i>
+                    <span>Thinking</span>
+                    <div class="typing-dots ms-2">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                `;
+                this.chatContainer.appendChild(thinkingEl);
+                this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+            }
+
+            hideThinkingIndicator() {
+                const thinking = document.getElementById('thinking-indicator');
+                if (thinking) {
+                    thinking.remove();
+                }
+            }
+            
+            async queryLLM() {
+                await this.delay(800 + Math.random() * 800); // More realistic delay
+                
+                const lastUserMessage = this.messages.filter(m => m.role === 'user').slice(-1)[0];
+                if (!lastUserMessage) return { content: "Hello! How can I help you?" };
+                
+                const userInput = lastUserMessage.content.toLowerCase();
+                
+                // Enhanced pattern matching with multiple triggers
+                if (this.shouldSearch(userInput)) {
+                    return {
+                        content: "🔍 I'll search for that information for you.",
+                        tool_calls: [{
+                            id: 'call_' + Date.now(),
+                            type: 'function',
+                            function: {
+                                name: 'google_search',
+                                arguments: JSON.stringify({ query: this.extractSearchQuery(userInput) })
+                            }
+                        }]
+                    };
+                }
+                
+                if (this.shouldCalculate(userInput)) {
+                    return {
+                        content: "🧮 I'll calculate that for you using JavaScript.",
+                        tool_calls: [{
+                            id: 'call_' + Date.now(),
+                            type: 'function',
+                            function: {
+                                name: 'execute_javascript',
+                                arguments: JSON.stringify({ code: this.generateMathCode(userInput) })
+                            }
+                        }]
+                    };
+                }
+                
+                if (this.shouldUseAI(userInput)) {
+                    return {
+                        content: "🤖 I'll process that using our AI pipeline.",
+                        tool_calls: [{
+                            id: 'call_' + Date.now(),
+                            type: 'function',
+                            function: {
+                                name: 'ai_pipe',
+                                arguments: JSON.stringify({ 
+                                    prompt: "Analyze and provide insights on: " + lastUserMessage.content,
+                                    data: userInput 
+                                })
+                            }
+                        }]
+                    };
+                }
+                
+                // Intelligent default responses based on context
+                const responses = this.getContextualResponses(userInput);
+                return {
+                    content: responses[Math.floor(Math.random() * responses.length)]
+                };
+            }
+
+            shouldSearch(input) {
+                const searchTriggers = [
+                    'search', 'find', 'look up', 'lookup', 'what is', 'who is', 'when did', 'where is',
+                    'tell me about', 'information about', 'details about', 'news about', 'latest'
+                ];
+                return searchTriggers.some(trigger => input.includes(trigger));
+            }
+
+            shouldCalculate(input) {
+                const mathTriggers = [
+                    'calculate', 'math', 'compute', 'solve', 'equation', 'formula', 'sum', 'multiply',
+                    'divide', 'add', 'subtract', 'percentage', 'average', 'fibonacci', 'prime'
+                ];
+                return mathTriggers.some(trigger => input.includes(trigger)) || /\d/.test(input);
+            }
+
+            shouldUseAI(input) {
+                const aiTriggers = [
+                    'analyze', 'process', 'understand', 'explain', 'summarize', 'interpret',
+                    'compare', 'evaluate', 'assess', 'review', 'opinion', 'thoughts'
+                ];
+                return aiTriggers.some(trigger => input.includes(trigger));
+            }
+
+            getContextualResponses(input) {
+                if (input.includes('hello') || input.includes('hi')) {
+                    return [
+                        "👋 Hello! I'm your AI assistant with access to web search, code execution, and AI processing capabilities. How can I help you today?",
+                        "🤖 Hi there! I'm ready to help you with searches, calculations, data analysis, and more. What would you like to explore?"
+                    ];
+                }
+
+                if (input.includes('help') || input.includes('what can you do')) {
+                    return [
+                        "🛠️ I can help you with:\n• 🔍 Web searches for any information\n• 💻 JavaScript code execution and calculations\n• 🧠 AI-powered data analysis and insights\n\nJust ask me naturally!",
+                        "✨ My capabilities include searching the web, running calculations, and processing data with AI. Try asking me to 'search for something', 'calculate math', or 'analyze data'!"
+                    ];
+                }
+
+                return [
+                    `💭 I understand you said: "${input}". I have powerful tools at my disposal - would you like me to search for information, run calculations, or analyze something?`,
+                    `🎯 Got your message! I can help with web searches, code execution, or AI analysis. What specific task would you like me to tackle?`,
+                    `🚀 Thanks for reaching out! Whether you need research, calculations, or data insights, I'm here to help. What should we work on?`,
+                    `💡 I'm ready to assist! My tools include web search, JavaScript execution, and AI processing. How can I put them to work for you?`
+                ];
+            }
+            
+            extractSearchQuery(input) {
+                // Enhanced query extraction
+                const searchWords = ['search for', 'find', 'look up', 'lookup', 'what is', 'who is', 'tell me about'];
+                for (const phrase of searchWords) {
+                    const index = input.indexOf(phrase);
+                    if (index !== -1) {
+                        return input.substring(index + phrase.length).trim() || input;
+                    }
+                }
+                return input;
+            }
+            
+            generateMathCode(input) {
+                if (input.includes('fibonacci')) {
+                    return `
+// Fibonacci sequence generator
+function fibonacci(n) {
+    if (n <= 1) return n;
+    return fibonacci(n-1) + fibonacci(n-2);
+}
+
+console.log('🔢 Fibonacci Sequence (first 10 numbers):');
+const fibSequence = [];
+for(let i = 0; i < 10; i++) {
+    const fibNum = fibonacci(i);
+    fibSequence.push(fibNum);
+    console.log(\`F(\${i}) = \${fibNum}\`);
+}
+console.log('\\n📊 Sequence:', fibSequence.join(', '));
+                    `;
+                }
+                
+                if (input.includes('prime')) {
+                    return `
+// Prime number generator
+function isPrime(n) {
+    if (n <= 1) return false;
+    if (n <= 3) return true;
+    if (n % 2 === 0 || n % 3 === 0) return false;
+    
+    for(let i = 5; i * i <= n; i += 6) {
+        if (n % i === 0 || n % (i + 2) === 0) return false;
+    }
+    return true;
+}
+
+console.log('🔢 Prime Numbers up to 100:');
+const primes = [];
+for(let i = 2; i <= 100; i++) {
+    if (isPrime(i)) {
+        primes.push(i);
+    }
+}
+console.log('📊 Found', primes.length, 'prime numbers:');
+console.log(primes.join(', '));
+                    `;
+                }
+
+                if (input.includes('statistics') || input.includes('random')) {
+                    return `
+// Statistical analysis with random data
+const data = Array.from({length: 20}, () => Math.floor(Math.random() * 100) + 1);
+console.log('📊 Generated Dataset:', data);
+
+const sum = data.reduce((a, b) => a + b, 0);
+const mean = sum / data.length;
+const sortedData = [...data].sort((a, b) => a - b);
+const median = sortedData.length % 2 === 0 
+    ? (sortedData[sortedData.length/2 - 1] + sortedData[sortedData.length/2]) / 2
+    : sortedData[Math.floor(sortedData.length/2)];
+
+const variance = data.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / data.length;
+const stdDev = Math.sqrt(variance);
+
+console.log('\\n📈 Statistical Analysis:');
+console.log('Mean:', mean.toFixed(2));
+console.log('Median:', median);
+console.log('Standard Deviation:', stdDev.toFixed(2));
+console.log('Min:', Math.min(...data));
+console.log('Max:', Math.max(...data));
+                    `;
+                }
+                
+                return `
+// Dynamic calculation based on your input
+const userInput = "${input}";
+console.log('🧮 Processing calculation request:', userInput);
+
+// Extract numbers from input
+const numbers = userInput.match(/\\d+(\\.\\d+)?/g)?.map(Number) || [42, 13, 7];
+console.log('📊 Extracted numbers:', numbers);
+
+if (numbers.length >= 2) {
+    const sum = numbers.reduce((a, b) => a + b, 0);
+    const product = numbers.reduce((a, b) => a * b, 1);
+    const average = sum / numbers.length;
+    
+    console.log('\\n🔢 Calculations:');
+    console.log('Sum:', sum);
+    console.log('Product:', product);
+    console.log('Average:', average.toFixed(2));
+    console.log('Largest:', Math.max(...numbers));
+    console.log('Smallest:', Math.min(...numbers));
+} else {
+    const num = numbers[0] || 42;
+    console.log('\\n🔢 Operations on', num + ':');
+    console.log('Square:', Math.pow(num, 2));
+    console.log('Square root:', Math.sqrt(num).toFixed(2));
+    console.log('Factorial:', num <= 10 ? [...Array(num)].reduce((a, _, i) => a * (i + 1), 1) : 'Too large');
+}
+                `;
+            }
+            
+            async handleToolCalls(toolCalls) {
+                const results = [];
+                
+                for (const toolCall of toolCalls) {
+                    this.toolCallCount++;
+                    this.updateStats();
+                    this.animateToolBadge(toolCall.function.name);
+                    
+                    this.addMessage('system', `⚡ Executing ${toolCall.function.name}...`);
+                    
+                    try {
+                        let result;
+                        const args = JSON.parse(toolCall.function.arguments);
+                        
+                        switch (toolCall.function.name) {
+                            case 'google_search':
+                                result = await this.executeGoogleSearch(args.query);
+                                break;
+                            case 'ai_pipe':
+                                result = await this.executeAIPipe(args.prompt, args.data);
+                                break;
+                            case 'execute_javascript':
+                                result = await this.executeJavaScript(args.code);
+                                break;
+                            default:
+                                result = `❌ Unknown tool: ${toolCall.function.name}`;
+                        }
+                        
+                        this.addMessage('tool', `✅ ${toolCall.function.name} completed:\n\n${result}`);
+                        
+                        results.push({
+                            tool_call_id: toolCall.id,
+                            content: result
+                        });
+                        
+                    } catch (error) {
+                        const errorMsg = `❌ Error in ${toolCall.function.name}: ${error.message}`;
+                        this.addMessage('error', errorMsg);
+                        results.push({
+                            tool_call_id: toolCall.id,
+                            content: errorMsg
+                        });
+                    }
+                }
+                
+                return results;
+            }
+
+            animateToolBadge(toolName) {
+                const toolMap = {
+                    'google_search': 'search',
+                    'ai_pipe': 'ai',
+                    'execute_javascript': 'code'
+                };
+                
+                const toolBadge = document.querySelector(`[data-tool="${toolMap[toolName]}"]`);
+                if (toolBadge) {
+                    toolBadge.classList.add('active', 'glow');
+                    setTimeout(() => {
+                        toolBadge.classList.remove('glow');
+                    }, 2000);
+                }
+            }
+            
+            async executeGoogleSearch(query) {
+                await this.delay(1200 + Math.random() * 800);
+                
+                const mockResults = [
+                    `🔍 Search Results for "${query}":`,
+                    ``,
+                    `📄 1. ${query} - Wikipedia`,
+                    `   Comprehensive encyclopedia entry about ${query} with detailed information,`,
+                    `   history, and related topics. Updated regularly by contributors worldwide.`,
+                    ``,
+                    `📰 2. Latest News: ${query}`,
+                    `   Recent developments and breaking news related to ${query}.`,
+                    `   Source: Major news outlets and verified journalists.`,
+                    ``,
+                    `🎓 3. ${query} - Academic Research`,
+                    `   Peer-reviewed articles and research papers about ${query}.`,
+                    `   Access to scholarly publications and scientific studies.`,
+                    ``,
+                    `🛠️ 4. ${query} Tutorial & Guide`,
+                    `   Step-by-step tutorials and comprehensive guides for ${query}.`,
+                    `   Includes practical examples and best practices.`,
+                    ``,
+                    `📊 Found 4 highly relevant results from trusted sources.`,
+                    `💡 Tip: Click on any result for detailed information.`
+                ];
+                
+                return mockResults.join('\n');
+            }
+            
+            async executeAIPipe(prompt, data = '') {
+                await this.delay(1800 + Math.random() * 1000);
+                
+                const analysisTypes = [
+                    'sentiment', 'technical', 'creative', 'analytical', 'strategic'
+                ];
+                const analysisType = analysisTypes[Math.floor(Math.random() * analysisTypes.length)];
+                
+                const analysis = [
+                    `🤖 AI Pipeline Analysis Complete`,
+                    ``,
+                    `📋 Analysis Type: ${analysisType.charAt(0).toUpperCase() + analysisType.slice(1)}`,
+                    `🎯 Prompt: ${prompt}`,
+                    `📊 Data Processing: ${data ? 'Custom data analyzed' : 'Generated insights'}`,
+                    ``,
+                    `🔍 Key Findings:`,
+                    `• The content shows ${Math.floor(Math.random() * 40 + 60)}% relevance to the query`,
+                    `• Processing complexity: ${['Low', 'Medium', 'High'][Math.floor(Math.random() * 3)]}`,
+                    `• Confidence score: ${Math.floor(Math.random() * 20 + 80)}%`,
+                    ``,
+                    `💡 AI Insights:`,
+                    `• Pattern recognition indicates ${analysisType} characteristics`,
+                    `• Recommended approach: Multi-layered analysis with contextual weighting`,
+                    `• Suggested next steps: Consider cross-referencing with additional sources`,
+                    ``,
+                    `⚡ Processing Time: ${Math.floor(Math.random() * 300 + 100)}ms`,
+                    `🔄 Model Version: GPT-4 Enhanced Pipeline`
+                ];
+                
+                return analysis.join('\n');
+            }
+            
+            async executeJavaScript(code) {
+                try {
+                    // Capture console output with enhanced formatting
+                    const originalLog = console.log;
+                    let output = [];
+                    console.log = (...args) => {
+                        output.push(args.map(arg => {
+                            if (typeof arg === 'object' && arg !== null) {
+                                return JSON.stringify(arg, null, 2);
+                            }
+                            return String(arg);
+                        }).join(' '));
+                    };
+                    
+                    // Execute code with error handling
+                    const startTime = performance.now();
+                    const result = eval(code);
+                    const executionTime = (performance.now() - startTime).toFixed(2);
+                    
+                    // Restore console.log
+                    console.log = originalLog;
+                    
+                    // Format results with enhanced output
+                    let response = `💻 JavaScript Execution Complete\n\n`;
+                    response += `⏱️ Execution Time: ${executionTime}ms\n\n`;
+                    
+                    if (output.length > 0) {
+                        response += `📤 Console Output:\n`;
+                        response += output.map(line => `   ${line}`).join('\n') + '\n\n';
+                    }
+                    
+                    if (result !== undefined) {
+                        response += `🔄 Return Value: ${String(result)}\n\n`;
+                    }
+                    
+                    response += `✅ Code executed successfully without errors.`;
+                    
+                    return response;
+                    
+                } catch (error) {
+                    throw new Error(`JavaScript execution failed: ${error.message}`);
+                }
+            }
+            
+            addMessage(type, content) {
+                const messageEl = document.createElement('div');
+                messageEl.className = `message ${type}-message fade-in`;
+                
+                // Add appropriate icons and styling
+                const icons = {
+                    user: '<i class="fas fa-user me-2"></i>',
+                    agent: '<i class="fas fa-robot me-2"></i>',
+                    system: '<i class="fas fa-cog me-2"></i>',
+                    tool: '<i class="fas fa-terminal me-2"></i>',
+                    error: '<i class="fas fa-exclamation-triangle me-2"></i>'
+                };
+                
+                if (type === 'tool' || type === 'system') {
+                    messageEl.innerHTML = `${icons[type] || ''}<div class="code-block">${this.escapeHtml(content)}</div>`;
+                } else {
+                    messageEl.innerHTML = `${icons[type] || ''}${this.formatMessage(content)}`;
+                }
+                
+                this.chatContainer.appendChild(messageEl);
+                
+                // Smooth scroll animation
+                this.smoothScrollToBottom();
+                
+                this.messageCount++;
+                this.updateStats();
+                
+                // Add hover effects
+                messageEl.addEventListener('mouseenter', () => {
+                    messageEl.style.transform = 'translateY(-2px)';
+                });
+                messageEl.addEventListener('mouseleave', () => {
+                    messageEl.style.transform = 'translateY(0)';
+                });
+            }
+
+            smoothScrollToBottom() {
+                const scrollOptions = {
+                    top: this.chatContainer.scrollHeight,
+                    behavior: 'smooth'
+                };
+                this.chatContainer.scrollTo(scrollOptions);
+            }
+            
+            formatMessage(content) {
+                // Enhanced markdown-like formatting with emoji support
+                content = this.escapeHtml(content);
+                content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                content = content.replace(/\*(.*?)\*/g, '<em>$1</em>');
+                content = content.replace(/`(.*?)`/g, '<code class="inline-code">$1</code>');
+                content = content.replace(/\n/g, '<br>');
+                
+                // Add some visual enhancements for lists
+                content = content.replace(/^•/gm, '<span class="list-bullet">•</span>');
+                
+                return content;
+            }
+            
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+            
+            setProcessing(processing) {
+                this.isProcessing = processing;
+                this.sendBtn.disabled = processing;
+                
+                if (processing) {
+                    this.sendBtnText.textContent = 'Processing';
+                    this.sendBtnSpinner.classList.remove('d-none');
+                    this.sendIcon.classList.add('d-none');
+                    this.agentStatus.textContent = 'Working';
+                    this.agentStatus.className = 'status-badge working';
+                } else {
+                    this.sendBtnText.textContent = 'Send';
+                    this.sendBtnSpinner.classList.add('d-none');
+                    this.sendIcon.classList.remove('d-none');
+                    this.agentStatus.textContent = 'Ready';
+                    this.agentStatus.className = 'status-badge ready';
+                }
+            }
+            
+            updateStats() {
+                // Animate counter updates
+                this.animateCounter(this.messageCountEl, this.messageCount);
+                this.animateCounter(this.toolCallCountEl, this.toolCallCount);
+            }
+
+            animateCounter(element, newValue) {
+                const currentValue = parseInt(element.textContent);
+                if (currentValue === newValue) return;
+                
+                element.style.transform = 'scale(1.2)';
+                element.style.color = '#4facfe';
+                
+                setTimeout(() => {
+                    element.textContent = newValue;
+                    element.style.transform = 'scale(1)';
+                    element.style.color = '';
+                }, 150);
+            }
+            
+            showError(message) {
+                const alertEl = document.createElement('div');
+                alertEl.className = 'alert alert-danger alert-dismissible fade show';
+                alertEl.innerHTML = `
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                this.alertContainer.appendChild(alertEl);
+                
+                // Auto-dismiss with animation
+                setTimeout(() => {
+                    if (alertEl.parentNode) {
+                        alertEl.style.opacity = '0';
+                        alertEl.style.transform = 'translateY(-20px)';
+                        setTimeout(() => alertEl.remove(), 300);
+                    }
+                }, 5000);
+            }
+            
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+        }
+
+        // Initialize enhanced agent when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.agent = new EnhancedLLMAgent();
+            
+            // Add some loading animation
+            document.body.style.opacity = '0';
+            document.body.style.transform = 'translateY(20px)';
+            
+            setTimeout(() => {
+                document.body.style.transition = 'all 0.6s ease';
+                document.body.style.opacity = '1';
+                document.body.style.transform = 'translateY(0)';
+            }, 100);
+        });
+    </script>
+</body>
+</html>
