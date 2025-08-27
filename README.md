@@ -45,8 +45,8 @@ A modern, interactive proof-of-concept for a Large Language Model (LLM) agent wi
 
 1. **Clone or download the repository**
    ```bash
-   git clone https://github.com/shreyasaxena21/enhanced-llm-agent-poc.git
-   cd enhanced-llm-agent-poc
+   git clone https://github.com/shreyasaxena21/llm-agent
+   cd enhanced-llm-agent
    ```
 
 2. **Open in browser**
@@ -222,6 +222,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [ ] Enterprise features
 
 ---
+
 
 
 
